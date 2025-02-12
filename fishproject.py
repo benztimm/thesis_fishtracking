@@ -12,8 +12,8 @@ from tkinter import messagebox
 from collections import defaultdict
 
 
-output_write_video = True
-output_filename = 'output7482_F3.mp4'
+output_write_video = False
+output_filename = 'output7482_F3_draw_box.mp4'
 
 collect_data = False
 switch = 'tracker'
@@ -137,6 +137,53 @@ def filter_outliers(position_estimates, position_covariances):
 
     return filtered_estimates, filtered_covariances
 
+def compute_iou(box1, box2):
+    """
+    Calculate Intersection over Union (IoU) of two bounding boxes.
+    Each box is represented as (x, y, width, height).
+    """
+    x1, y1, w1, h1 = box1
+    x2, y2, w2, h2 = box2
+
+    # Compute coordinates of intersection rectangle
+    x_left = max(x1, x2)
+    y_top = max(y1, y2)
+    x_right = min(x1 + w1, x2 + w2)
+    y_bottom = min(y1 + h1, y2 + h2)
+
+    # Check if there is an intersection
+    if x_right < x_left or y_bottom < y_top:
+        return 0.0
+
+    # Compute intersection and union areas
+    intersection_area = (x_right - x_left) * (y_bottom - y_top)
+    box1_area = w1 * h1
+    box2_area = w2 * h2
+    union_area = box1_area + box2_area - intersection_area
+
+    # Compute IoU
+    iou = intersection_area / union_area
+    return iou
+
+def calculate_iou(boxA, boxB):
+    # Coordinates for the intersection rectangle
+    xA = max(boxA[0], boxB[0])
+    yA = max(boxA[1], boxB[1])
+    xB = min(boxA[0] + boxA[2], boxB[0] + boxB[2])
+    yB = min(boxA[1] + boxA[3], boxB[1] + boxB[3])
+
+    # Compute the area of intersection
+    interWidth = max(0, xB - xA)
+    interHeight = max(0, yB - yA)
+    interArea = interWidth * interHeight
+
+    # Compute the area of each bounding box
+    boxAArea = boxA[2] * boxA[3]
+    boxBArea = boxB[2] * boxB[3]
+
+    # Compute IoU
+    iou = interArea / (boxAArea + boxBArea - interArea) if (boxAArea + boxBArea - interArea) != 0 else 0
+    return iou
 
 def save_distance_data_to_csv(csv_filename, distance_data):
     with open(csv_filename, mode='w', newline='') as file:
@@ -310,12 +357,12 @@ def auto_reinitialize_trackers(current_frame, reinitialization_data, tracker):
     reinit_for_frame = [data for data in reinitialization_data if data['Frame'] == current_frame]
     if reinit_for_frame:
         print(f"Auto-reinitializing trackers at frame {current_frame}")
-        print(reinit_for_frame)
+        #print(reinit_for_frame)
         
     for data in reinit_for_frame:
         tracker_idx = tracker_type_name.index(data['Tracker'])  # Get the tracker index from the tracker name
         roi = (data['x'], data['y'], data['w'], data['h'])
-        print(f"Auto-reinitializing {data['Tracker']} at frame {current_frame} with ROI: {roi}")
+        #print(f"Auto-reinitializing {data['Tracker']} at frame {current_frame} with ROI: {roi}")
 
         # Reinitialize the tracker with the new ROI
         tracker[tracker_idx] = create_tracker(tracker_idx)
@@ -327,7 +374,7 @@ reinitialization_data = load_reinitialization_data(csv_filename)
 #reinitialization_data = None
 if reinitialization_data:
     print(f"Loaded {len(reinitialization_data)} reinitialization data entries")
-    print(reinitialization_data)
+    #print(reinitialization_data)
 # get label folder
 absolute_path = os.path.dirname(os.path.abspath(__file__))
 relative_path = label_folder
@@ -371,9 +418,6 @@ rmse_collection = defaultdict(list)
 ground_truth_centroids_collection = []
 rmse_over_time = []
 
-
-#output_video = cv2.VideoWriter(output_filename, cv2.VideoWriter_fourcc(*'mp4v'), fps, (frame_width, frame_height))
-
 for i in range(TRACKER_NUM):
     tracker.append(create_tracker(i))
     tracker[i].init(frame, first_location)
@@ -404,12 +448,14 @@ tracking_box_size = []
 centroid = []
 is_inside_collection = []
 reinitialization_data_new = []
+iou_collection = []
 user_break = False
 
-frame_width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
-frame_height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
-fps = 7
-output_video = cv2.VideoWriter(output_filename, cv2.VideoWriter_fourcc(*'mp4v'), fps, (frame_width, frame_height))
+if output_write_video:
+    frame_width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = 7
+    output_video = cv2.VideoWriter(output_filename, cv2.VideoWriter_fourcc(*'mp4v'), fps, (frame_width, frame_height))
 
 for i in range(len(label_container_abs)):
     ret, frame = video.read()
@@ -512,6 +558,14 @@ for i in range(len(label_container_abs)):
                 'x': centroid_x_tracking,
                 'y': centroid_y_tracking
             })
+                #print(f"Tracker {tracker_type_name[j]} x:{x} y:{y} w:{w} h:{h}")
+                iou = compute_iou([x, y, w, h], label_container_abs[i])
+                iou_collection.append({
+                    'Frame': i,
+                    'Tracker': tracker_type_name[j],
+                    'IoU': iou
+                })
+                print(f"IoU for tracker {tracker_type_name[j]}: {iou}")
                 cv2.circle(frame, (centroid_x_tracking, centroid_y_tracking), radius=5, color=color[j], thickness=-1)  # The -1 thickness fills the circle
                 cv2.putText(frame, f'{tracker_type_name[j]}', (centroid_x_tracking, centroid_y_tracking-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color=color[j], thickness=2)
             
@@ -573,6 +627,7 @@ for i in range(len(label_container_abs)):
     # plot ground truth
     ground_truth = label_container_abs[i]
     ground_truth_x, ground_truth_y, ground_truth_width, ground_truth_height = ground_truth
+    #print(f'ground truth: {ground_truth}')
     centroid_x = int(label_container_abs[i][0] + label_container_abs[i][2]/2)
     centroid_y = int(label_container_abs[i][1] + label_container_abs[i][3]/2)
     cv2.putText(frame, f'Real Fish Location', (label_container_abs[i][0], label_container_abs[i][1]-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color=(0,0,0), thickness=2)
@@ -580,7 +635,6 @@ for i in range(len(label_container_abs)):
     cv2.circle(frame, (centroid_x, centroid_y), radius=7, color=(0,0,0), thickness=-1)  # The -1 thickness fills the circle
     #cv2.putText(frame, f'Real Fish Centroid', (centroid_x, centroid_y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color=(0,0,0), thickness=2)
     
-    print(f'position estimate: {position_estimates}')
     if position_estimates:
         # Filter outliers before performing CI
         filtered_position_estimates, filtered_position_covariances = filter_outliers(position_estimates, position_covariances)
@@ -638,6 +692,17 @@ for i in range(len(label_container_abs)):
     w,h = int(mean_box_size[0]), int(mean_box_size[1])
     x_min = int(x - w // 2)
     y_min = int(y - h // 2)
+    cv2.rectangle(frame, (x_min, y_min), (x_min + w, y_min + h), color=(255,255,255), thickness=2)
+    cv2.putText(frame, f'fused_box_from_mean_size', (x_min, y_min - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+    
+    if switch == 'tracker':
+        iou = compute_iou([x_min, y_min, w, h], ground_truth)
+        print(f"IoU for fused tracker: {iou}")
+        iou_collection.append({
+            'Frame': i,
+            'Tracker': 'Fused',
+            'IoU': iou
+        })
     
     for j in failed_trackers:
         print(f"Tracker {tracker_type_name[j]} failed, reinitializing tracker...")
@@ -678,7 +743,8 @@ for i in range(len(label_container_abs)):
     frame_resized = cv2.resize(frame, (1920,1080))
     cv2.imshow('Frame', frame_resized)
 cv2.destroyAllWindows()
-output_video.release()
+if output_write_video:
+    output_video.release()
 video.release()
 
 
@@ -711,6 +777,13 @@ if not user_break and collect_data:
         writer = csv.DictWriter(file, fieldnames=['Frame', 'Tracker', 'Rmse'])
         writer.writeheader()
         writer.writerows(rmse_over_time)
+        
+    if switch == 'tracker':
+        iou_csv_filename = f'iou_{kal_or_tracker}.csv'
+        with open(os.path.join(os.path.join(folder,iou_csv_filename)), mode='w', newline='') as file:
+            writer = csv.DictWriter(file, fieldnames=['Frame', 'Tracker', 'IoU'])
+            writer.writeheader()
+            writer.writerows(iou_collection)
     print("Data saved to CSV files.")
 else:
     print("Data not saved to CSV files. User break the program.")
