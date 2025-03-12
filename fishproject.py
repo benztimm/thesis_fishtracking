@@ -10,8 +10,11 @@ from scipy.spatial.distance import mahalanobis
 import tkinter as tk
 from tkinter import messagebox
 from collections import defaultdict
+import pandas as pd
+import copy
 
 
+TRACKER_NUM = 6
 output_write_video = False
 output_filename = 'output7482_F3_draw_box.mp4'
 
@@ -282,7 +285,6 @@ def multi_covariance_intersection(estimates, covariances):
     return fused_estimate, fused_cov
 
 
-TRACKER_NUM = 6
 tracker_type_name = ['CSRT', 'KCF', 'MIL', 'BOOSTING', 'MEDIANFLOW',  'MOSSE', 'TLD']
 tracker_type_name = tracker_type_name[:TRACKER_NUM]
 def create_tracker(tracker_type):
@@ -300,7 +302,6 @@ def create_tracker(tracker_type):
         return cv2.legacy.TrackerMOSSE.create()
     if tracker_type == 6:
         return cv2.legacy.TrackerTLD.create()
-
     """
     if tracker_type == 7:
         return cv2.TrackerDaSiamRPN.create()
@@ -360,13 +361,18 @@ def auto_reinitialize_trackers(current_frame, reinitialization_data, tracker):
         #print(reinit_for_frame)
         
     for data in reinit_for_frame:
-        tracker_idx = tracker_type_name.index(data['Tracker'])  # Get the tracker index from the tracker name
-        roi = (data['x'], data['y'], data['w'], data['h'])
-        #print(f"Auto-reinitializing {data['Tracker']} at frame {current_frame} with ROI: {roi}")
-
-        # Reinitialize the tracker with the new ROI
-        tracker[tracker_idx] = create_tracker(tracker_idx)
-        tracker[tracker_idx].init(frame, roi)
+        try:
+            tracker_idx = tracker_type_name.index(data['Tracker'])  # Get the tracker index from the tracker name
+            roi = (data['x'], data['y'], data['w'], data['h'])
+            #print(f"Auto-reinitializing {data['Tracker']} at frame {current_frame} with ROI: {roi}")
+    
+            # Reinitialize the tracker with the new ROI
+    
+            tracker[tracker_idx] = create_tracker(tracker_idx)
+            tracker[tracker_idx].init(frame, roi)
+        except Exception as e:
+            print(e)
+            continue
 
 # Load the reinitialization data from the CSV file
 csv_filename = reinitialization_data_filename
@@ -398,13 +404,12 @@ if not video.isOpened():
     print("Error: Could not open video.")
     exit()
     
-frame_container = []    
 # Read first frame
 ret, frame = video.read()
-frame_container.append(frame)
 # convert label to absolute coordinates
 label_container_abs = [convert_to_absolute(coords, frame.shape) for coords in label_container]
-
+print(f"Loaded {len(label_container_abs)} labels")
+print(f"label: {label_container_abs}")
 # get first label and remove it from the container
 first_location = label_container_abs.pop(0)
 
@@ -459,8 +464,7 @@ if output_write_video:
 
 for i in range(len(label_container_abs)):
     ret, frame = video.read()
-    frame_data = {'Frame': i}  # Start with frame number
-    frame_copy = frame.copy()
+    frame_copy = copy.deepcopy(frame)
 
     # Check if the user pressed 'x' to select a new ROI
     key = cv2.waitKey(30) & 0xFF
@@ -531,6 +535,7 @@ for i in range(len(label_container_abs)):
             """
             
             tracker_positions.append([centroid_x_tracking, centroid_y_tracking])
+            print(f"Tracker {tracker_type_name[j]} centroid: {centroid_x_tracking}, {centroid_y_tracking}")
             tracking_box_size.append([w, h])
             tracker_num.append(j)
             
@@ -586,43 +591,6 @@ for i in range(len(label_container_abs)):
             tracker[j].init(frame, (x_new, y_new, w_new, h_new))
             """
 
-    # Calculate the median position of all trackers
-    tracker_positions_array = np.array(tracker_positions)
-    median_position = np.median(tracker_positions_array, axis=0)
-
-    # Calculate the mean box size of all trackers
-    tracker_box_size_array = np.array(tracking_box_size)
-    mean_box_size = np.mean(tracker_box_size_array, axis=0)
-
-    # Calculate the covariance matrix of the positions
-    cov_matrix = np.cov(tracker_positions_array, rowvar=False) 
-
-    data_collection.append(frame_data)
-    print("====================================")
-
-    # Eigen decomposition of the covariance matrix
-    eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
-
-    # Calculate the angle of rotation for the ellipse
-    angle = np.degrees(np.arctan2(*eigenvectors[:, 0][::-1]))
-
-    # Lengths of the ellipse axes (scaled by the Mahalanobis distance level)
-    # Here, we use a scaling factor of 2, which corresponds to approximately the 95% confidence interval in 2D
-    axis_length1 = 2 * np.sqrt(eigenvalues[0]) * 2  # Major axis
-    axis_length2 = 2 * np.sqrt(eigenvalues[1]) * 2  # Minor axis
-
-
-    # Draw the overall Mahalanobis ellipse on the frame
-    center = (int(median_position[0]), int(median_position[1]))
-    cv2.ellipse(
-        frame, center,
-        axes=(int(axis_length1), int(axis_length2)),
-        angle=angle,
-        startAngle=0, endAngle=360,
-        color=(255, 255, 255), thickness=2
-    )
-    
-
     
     # plot ground truth
     ground_truth = label_container_abs[i]
@@ -644,22 +612,22 @@ for i in range(len(label_container_abs)):
                 filtered_position_estimates, filtered_position_covariances
             )
             # Draw the fused position and uncertainty
-            x, y = int(fused_position[0]), int(fused_position[1])
-            cv2.circle(frame, (x, y), 7, (255, 255, 255), -1)
-            cv2.putText(frame, f'Fused location', (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+            x_fuse, y_fuse = int(fused_position[0]), int(fused_position[1])
+            cv2.circle(frame, (x_fuse, y_fuse), 7, (255, 255, 255), -1)
+            cv2.putText(frame, f'Fused location', (x_fuse, y_fuse - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
             
-            fuse_distance = calculate_distance([x, y], [centroid_x, centroid_y])
+            fuse_distance = calculate_distance([x_fuse, y_fuse], [centroid_x, centroid_y])
             data_distance_collection.append({
                 'Frame': i,
                 'Tracker': 'Fused',
                 'Distance': fuse_distance
             })
-            rmse_collection['Fuse'].append({'Frame': i, 'Centroid': [x, y]})
+            rmse_collection['Fuse'].append({'Frame': i, 'Centroid': [x_fuse, y_fuse]})
             #fuse_centroid_box = adjust_centroid_to_ground_truth_size(x, y, ground_truth_width, ground_truth_height)
             #iou = calculate_iou(fuse_centroid_box, ground_truth)
             #print(f"IoU for fused tracker: {iou}")
             #cv2.rectangle(frame, (fuse_centroid_box[0], fuse_centroid_box[1]), (fuse_centroid_box[0] + fuse_centroid_box[2], fuse_centroid_box[1] + fuse_centroid_box[3]), color=(255,255,255), thickness=2)
-            is_inside_fuse = is_centroid_overlapping(label_container_abs[i], x, y)
+            is_inside_fuse = is_centroid_overlapping(label_container_abs[i], x_fuse, y_fuse)
             is_inside_collection.append({
                 'Frame': i,
                 'Tracker': 'Fused',
@@ -669,6 +637,42 @@ for i in range(len(label_container_abs)):
             print("No valid trackers within bounds for CI.")
     else:
         print("No position estimates available for CI.")
+        
+        
+    # draw ellipse
+    # Calculate the median position of all trackers
+    tracker_positions_array = np.array(tracker_positions)
+    median_position = np.median(tracker_positions_array, axis=0)
+
+    # Calculate the mean box size of all trackers
+    tracker_box_size_array = np.array(tracking_box_size)
+    mean_box_size = np.mean(tracker_box_size_array, axis=0)
+
+    # Calculate the covariance matrix of the positions
+    position_estimates_array = np.array([pe.flatten() for pe in position_estimates])
+    cov_matrix = np.cov(position_estimates_array, rowvar=False) 
+    print("====================================")
+
+    # Eigen decomposition of the covariance matrix
+    eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
+    eigenvalues = np.maximum(eigenvalues, 0)
+    # Calculate the angle of rotation for the ellipse
+    angle = np.degrees(np.arctan2(*eigenvectors[:, 0][::-1]))
+
+    # Lengths of the ellipse axes (scaled by the Mahalanobis distance level)
+    # Here, we use a scaling factor of 2, which corresponds to approximately the 95% confidence interval in 2D
+    axis_length1 = 2 * np.sqrt(eigenvalues[0]) * 2  # Major axis
+    axis_length2 = 2 * np.sqrt(eigenvalues[1]) * 2  # Minor axis
+
+    # Draw the overall Mahalanobis ellipse on the frame
+    center = (int(median_position[0]), int(median_position[1]))
+    cv2.ellipse(
+        frame, center,
+        axes=(int(axis_length1), int(axis_length2)),
+        angle=angle,
+        startAngle=0, endAngle=360,
+        color=(255, 255, 255), thickness=2
+    )
 
     
     ground_truth_centroids_collection.append({'Frame': i, 'Centroid': [centroid_x, centroid_y]})
@@ -690,8 +694,8 @@ for i in range(len(label_container_abs)):
         #print(f"IoU for tracker {tracker_type_name[c['Tracker']]}: {iou}")
     
     w,h = int(mean_box_size[0]), int(mean_box_size[1])
-    x_min = int(x - w // 2)
-    y_min = int(y - h // 2)
+    x_min = int(x_fuse - w // 2)
+    y_min = int(y_fuse - h // 2)
     cv2.rectangle(frame, (x_min, y_min), (x_min + w, y_min + h), color=(255,255,255), thickness=2)
     cv2.putText(frame, f'fused_box_from_mean_size', (x_min, y_min - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
     
@@ -729,7 +733,6 @@ for i in range(len(label_container_abs)):
             'Rmse': rmse
         })
         
-    frame_container.append(frame)
     position_covariances.clear()
     position_estimates.clear()
     failed_trackers.clear()
@@ -741,7 +744,7 @@ for i in range(len(label_container_abs)):
         output_video.write(frame)
     
     frame_resized = cv2.resize(frame, (1920,1080))
-    cv2.imshow('Frame', frame_resized)
+    cv2.imshow('Frame', frame)
 cv2.destroyAllWindows()
 if output_write_video:
     output_video.release()
@@ -798,6 +801,8 @@ if not csv_filename:
 else:
     save_reinitialization_data_to_csv(csv_filename, reinitialization_data_new)
 """
+
+
 
 
 
