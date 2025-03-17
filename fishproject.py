@@ -2,19 +2,18 @@ import cv2
 import os
 import numpy as np
 import csv
-import sys
-import time
 from scipy.optimize import minimize
-from scipy import stats
 from scipy.spatial.distance import mahalanobis
 import tkinter as tk
-from tkinter import messagebox
 from collections import defaultdict
 import pandas as pd
 import copy
 
 
 TRACKER_NUM = 6
+
+'''
+#7482_F3
 output_write_video = False
 output_filename = 'output7482_F3_draw_box.mp4'
 
@@ -27,7 +26,7 @@ video_name = 'video7482_F3.mp4'
 
 label_folder = 'labels_7482_F3'
 reinitialization_data_filename = 'reinitialization_data_1_7482_F3.csv'
-
+#
 '''
 #9862
 output_write_video = False
@@ -42,7 +41,7 @@ video_name = 'video9862.mp4'
 
 label_folder = 'labels_9862'
 reinitialization_data_filename = 'reinitialization_data_1_9862.csv'
-'''
+#
 
 current_dir = os.getcwd()
 reinitialization_data_folder = 'reinitialization_data'
@@ -168,25 +167,6 @@ def compute_iou(box1, box2):
     iou = intersection_area / union_area
     return iou
 
-def calculate_iou(boxA, boxB):
-    # Coordinates for the intersection rectangle
-    xA = max(boxA[0], boxB[0])
-    yA = max(boxA[1], boxB[1])
-    xB = min(boxA[0] + boxA[2], boxB[0] + boxB[2])
-    yB = min(boxA[1] + boxA[3], boxB[1] + boxB[3])
-
-    # Compute the area of intersection
-    interWidth = max(0, xB - xA)
-    interHeight = max(0, yB - yA)
-    interArea = interWidth * interHeight
-
-    # Compute the area of each bounding box
-    boxAArea = boxA[2] * boxA[3]
-    boxBArea = boxB[2] * boxB[3]
-
-    # Compute IoU
-    iou = interArea / (boxAArea + boxBArea - interArea) if (boxAArea + boxBArea - interArea) != 0 else 0
-    return iou
 
 def save_distance_data_to_csv(csv_filename, distance_data):
     with open(csv_filename, mode='w', newline='') as file:
@@ -314,18 +294,7 @@ def is_centroid_overlapping(rect1, centroid_x2,centroid_y2):
     x1, y1, w1, h1 = rect1
     # Check if the centroid of rect2 lies within the boundaries of rect1
     return (x1 <= centroid_x2 <= (x1 + w1)) and (y1 <= centroid_y2 <= (y1 + h1))
-
-def is_centroid_overlapping_2(rect1, rect2):
-    x1, y1, w1, h1 = rect1
-    x2, y2, w2, h2 = rect2
-
-    # Compute the centroid of rect2
-    centroid_x2 = x2 + w2 // 2
-    centroid_y2 = y2 + h2 // 2
-
-    # Check if the centroid of rect2 lies within the boundaries of rect1
-    return (x1 <= centroid_x2 <= (x1 + w1)) and (y1 <= centroid_y2 <= (y1 + h1))
-    
+  
     
 def calculate_distance(centroid1, centroid2):
     return np.sqrt((centroid1[0] - centroid2[0])**2 + (centroid1[1] - centroid2[1])**2)
@@ -408,8 +377,6 @@ if not video.isOpened():
 ret, frame = video.read()
 # convert label to absolute coordinates
 label_container_abs = [convert_to_absolute(coords, frame.shape) for coords in label_container]
-print(f"Loaded {len(label_container_abs)} labels")
-print(f"label: {label_container_abs}")
 # get first label and remove it from the container
 first_location = label_container_abs.pop(0)
 
@@ -418,7 +385,6 @@ kalman = []
 position_estimates = []
 position_covariances = []
 data_distance_collection = []
-data_iou_collection = []
 rmse_collection = defaultdict(list)
 ground_truth_centroids_collection = []
 rmse_over_time = []
@@ -436,18 +402,8 @@ for i in range(TRACKER_NUM):
     kalman[i].statePost = kalman[i].statePre
 
 color = [(255, 0, 0),(0, 255, 0),(0, 0, 255),(255, 255, 0),(255, 0, 255),(0, 255, 255),(128, 0, 128),(255, 165, 0)]
-"""
-if not is_centroid_overlapping((x, y, w, h), label_container_abs[i]):
-                    # Delete the existing tracker and create a new one
-                    tracker[j] = create_tracker(j)
-                    x_new, y_new, w_new, h_new = label_container_abs[i]
-        
-                    # Initialize the tracker with the new bounding box
-                    tracker[j].init(frame, (x_new, y_new, w_new, h_new))
-"""
+
 tracker_positions = []
-tracker_num = []
-data_collection = []
 failed_trackers = []
 tracking_box_size = []
 centroid = []
@@ -509,35 +465,26 @@ for i in range(len(label_container_abs)):
         break
     if reinitialization_data:
         auto_reinitialize_trackers(i, reinitialization_data, tracker)
-    print(f"====================Processing frame {i}====================")
     if not ret:
         break
+    
+    # Initialize the data collection for the current frame
+    tracker_positions.append([])
+    failed_trackers.append([])
+    position_covariances.append([])
+    position_estimates.append([])
+    tracking_box_size.append([])
+    centroid.append([])
+    
     for j in range(TRACKER_NUM):
         success, box = tracker[j].update(frame_copy)
         if success:
             (x, y, w, h) = [int(v) for v in box]
             centroid_x_tracking = int(x + w/2)
             centroid_y_tracking = int(y + h/2)
-            
-            
-            #cv2.rectangle(frame, (x,y), (x+w, y+h), color=color[j], thickness=2)
-            
-            """
-            if not is_centroid_overlapping_2((x, y, w, h), label_container_abs[i]):
-                # Delete the existing tracker and create a new one
-                tracker[j] = create_tracker(j)
-                x_new, y_new, w_new, h_new = label_container_abs[i]
-                # Initialize the tracker with the new bounding box
-                tracker[j].init(frame, (x_new, y_new, w_new, h_new))
-                print(f"Tracker {tracker_type_name[j]} not overlapping with ground truth, reinitializing tracker...")
-                centroid_x_tracking = int(label_container_abs[i][0] + label_container_abs[i][2]/2)
-                centroid_y_tracking = int(label_container_abs[i][1] + label_container_abs[i][3]/2)
-            """
-            
-            tracker_positions.append([centroid_x_tracking, centroid_y_tracking])
-            print(f"Tracker {tracker_type_name[j]} centroid: {centroid_x_tracking}, {centroid_y_tracking}")
-            tracking_box_size.append([w, h])
-            tracker_num.append(j)
+              
+            tracker_positions[i].append([centroid_x_tracking, centroid_y_tracking])
+            tracking_box_size[i].append([w, h])
             
              # Update Kalman Filter with the new measurement
             measurement = np.array([[np.float32(centroid_x_tracking)], [np.float32(centroid_y_tracking)]])
@@ -550,7 +497,7 @@ for i in range(len(label_container_abs)):
                 
             
             if switch == 'kalman':
-                centroid.append({
+                centroid[i].append({
                     'Tracker': j,
                     'x': int(prediction[0]),
                     'y': int(prediction[1])
@@ -558,33 +505,28 @@ for i in range(len(label_container_abs)):
                 cv2.circle(frame, pt, radius=5, color=color[j], thickness=-1)
                 cv2.putText(frame, f'kalman_{tracker_type_name[j]}', (int(prediction[0]), int(prediction[1]-5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color=color[j], thickness=2)
             elif switch == 'tracker':
-                centroid.append({
+                centroid[i].append({
                 'Tracker': j,
                 'x': centroid_x_tracking,
                 'y': centroid_y_tracking
             })
-                #print(f"Tracker {tracker_type_name[j]} x:{x} y:{y} w:{w} h:{h}")
                 iou = compute_iou([x, y, w, h], label_container_abs[i])
                 iou_collection.append({
                     'Frame': i,
                     'Tracker': tracker_type_name[j],
                     'IoU': iou
                 })
-                print(f"IoU for tracker {tracker_type_name[j]}: {iou}")
                 cv2.circle(frame, (centroid_x_tracking, centroid_y_tracking), radius=5, color=color[j], thickness=-1)  # The -1 thickness fills the circle
                 cv2.putText(frame, f'{tracker_type_name[j]}', (centroid_x_tracking, centroid_y_tracking-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color=color[j], thickness=2)
             
-            state_estimate = kalman[j].statePost
-            covariance_matrix = kalman[j].errorCovPost
             # If needed, print or store these values
             position_estimate = kalman[j].statePost[:2]
             position_covariance = kalman[j].errorCovPost[:2, :2]
-            position_estimates.append(position_estimate)
-            position_covariances.append(position_covariance)
+            position_estimates[i].append(position_estimate)
+            position_covariances[i].append(position_covariance)
 
         else:
-            print(f"Tracker {tracker_type_name[j]} failed")
-            failed_trackers.append(j)
+            failed_trackers[i].append(j)
             """
             tracker[j] = create_tracker(j)
             x_new, y_new, w_new, h_new = label_container_abs[i]
@@ -594,8 +536,6 @@ for i in range(len(label_container_abs)):
     
     # plot ground truth
     ground_truth = label_container_abs[i]
-    ground_truth_x, ground_truth_y, ground_truth_width, ground_truth_height = ground_truth
-    #print(f'ground truth: {ground_truth}')
     centroid_x = int(label_container_abs[i][0] + label_container_abs[i][2]/2)
     centroid_y = int(label_container_abs[i][1] + label_container_abs[i][3]/2)
     cv2.putText(frame, f'Real Fish Location', (label_container_abs[i][0], label_container_abs[i][1]-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color=(0,0,0), thickness=2)
@@ -603,9 +543,9 @@ for i in range(len(label_container_abs)):
     cv2.circle(frame, (centroid_x, centroid_y), radius=7, color=(0,0,0), thickness=-1)  # The -1 thickness fills the circle
     #cv2.putText(frame, f'Real Fish Centroid', (centroid_x, centroid_y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color=(0,0,0), thickness=2)
     
-    if position_estimates:
+    if position_estimates[i]:
         # Filter outliers before performing CI
-        filtered_position_estimates, filtered_position_covariances = filter_outliers(position_estimates, position_covariances)
+        filtered_position_estimates, filtered_position_covariances = filter_outliers(position_estimates[i], position_covariances[i])
         if filtered_position_estimates:
             # Perform Covariance Intersection with filtered data
             fused_position, fused_covariance = multi_covariance_intersection(
@@ -641,17 +581,16 @@ for i in range(len(label_container_abs)):
         
     # draw ellipse
     # Calculate the median position of all trackers
-    tracker_positions_array = np.array(tracker_positions)
+    tracker_positions_array = np.array(tracker_positions[i])
     median_position = np.median(tracker_positions_array, axis=0)
 
     # Calculate the mean box size of all trackers
-    tracker_box_size_array = np.array(tracking_box_size)
+    tracker_box_size_array = np.array(tracking_box_size[i])
     mean_box_size = np.mean(tracker_box_size_array, axis=0)
 
     # Calculate the covariance matrix of the positions
-    position_estimates_array = np.array([pe.flatten() for pe in position_estimates])
+    position_estimates_array = np.array([pe.flatten() for pe in position_estimates[i]])
     cov_matrix = np.cov(position_estimates_array, rowvar=False) 
-    print("====================================")
 
     # Eigen decomposition of the covariance matrix
     eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
@@ -679,7 +618,7 @@ for i in range(len(label_container_abs)):
     """
         centroid data collection
     """
-    for c in centroid:
+    for c in centroid[i]:
         distance = calculate_distance([c['x'], c['y']], [centroid_x, centroid_y])
         data_distance_collection.append({
             'Frame': i,
@@ -687,11 +626,6 @@ for i in range(len(label_container_abs)):
             'Distance': distance
         })
         rmse_collection[tracker_type_name[c['Tracker']]].append({'Frame': i, 'Centroid': [c['x'], c['y']]})
-
-        #centroid_box = adjust_centroid_to_ground_truth_size(c['x'], c['y'], ground_truth_width, ground_truth_height)
-        #cv2.rectangle(frame, (centroid_box[0], centroid_box[1]), (centroid_box[0] + centroid_box[2], centroid_box[1] + centroid_box[3]), color=color[c['Tracker']], thickness=2)
-        #iou = calculate_iou(centroid_box, ground_truth)
-        #print(f"IoU for tracker {tracker_type_name[c['Tracker']]}: {iou}")
     
     w,h = int(mean_box_size[0]), int(mean_box_size[1])
     x_min = int(x_fuse - w // 2)
@@ -701,21 +635,20 @@ for i in range(len(label_container_abs)):
     
     if switch == 'tracker':
         iou = compute_iou([x_min, y_min, w, h], ground_truth)
-        print(f"IoU for fused tracker: {iou}")
         iou_collection.append({
             'Frame': i,
             'Tracker': 'Fused',
             'IoU': iou
         })
     
-    for j in failed_trackers:
+    for j in failed_trackers[i]:
         print(f"Tracker {tracker_type_name[j]} failed, reinitializing tracker...")
         tracker[j] = create_tracker(j)
-        tracker[j].init(frame, (x_min, y_min, w, h))
+        tracker[j].init(frame_copy, (x_min, y_min, w, h))
         kalman[j].statePre = np.array([[x_min + w / 2], [y_min + h / 2], [0], [0]], np.float32)
         kalman[j].statePost = kalman[j].statePre
             
-    for c in centroid:
+    for c in centroid[i]:
         is_inside = is_centroid_overlapping(label_container_abs[i], c['x'], c['y'])
         is_inside_collection.append({
             'Frame': i,
@@ -731,20 +664,13 @@ for i in range(len(label_container_abs)):
             'Frame': i,
             'Tracker': tracker_name,
             'Rmse': rmse
-        })
-        
-    position_covariances.clear()
-    position_estimates.clear()
-    failed_trackers.clear()
-    tracking_box_size.clear()
-    centroid.clear()
-    tracker_positions.clear()
-    tracker_num.clear()
+        })     
     if output_write_video:
         output_video.write(frame)
-    
+
     frame_resized = cv2.resize(frame, (1920,1080))
     cv2.imshow('Frame', frame)
+    
 cv2.destroyAllWindows()
 if output_write_video:
     output_video.release()
@@ -790,6 +716,47 @@ if not user_break and collect_data:
     print("Data saved to CSV files.")
 else:
     print("Data not saved to CSV files. User break the program.")
+    df_data_distance_collection = pd.DataFrame(data_distance_collection)
+    df_is_inside_collection = pd.DataFrame(is_inside_collection)
+    rmse_calculated_collection = []
+    for tracker_name, rmse_data in rmse_collection.items():
+        rmse = compute_frame_rmse(rmse_data, ground_truth_centroids_collection)
+        rmse_calculated_collection.append({
+                'Tracker': tracker_name,
+                'RMSE': rmse
+            })
+    df_rmse_calculated_collection = pd.DataFrame(rmse_calculated_collection)
+    df_iou_collection = pd.DataFrame(iou_collection)
+    df_reinit = pd.DataFrame(reinitialization_data)
+
+    
+    tracker_counts = df_is_inside_collection.groupby('Tracker')['Is_inside'].value_counts().sort_values(ascending=False)
+    max_distance = df_data_distance_collection.groupby('Tracker')['Distance'].max().sort_values(ascending=False)
+    min_distance = df_data_distance_collection.groupby('Tracker')['Distance'].min().sort_values()
+    average_distance = df_data_distance_collection.groupby('Tracker')['Distance'].mean().sort_values()
+    rmse = df_rmse_calculated_collection.sort_values(by='RMSE')
+    average_iou = df_iou_collection.groupby('Tracker')['IoU'].mean().sort_values(ascending=False) if switch == 'tracker' else None
+    
+    total_tracker_counts = df_is_inside_collection.groupby('Tracker')['Is_inside'].count()
+    failed_counts = len(label_container_abs) - total_tracker_counts
+    failed_counts.sort_values(ascending=False)
+    
+    print("================================================================================================")
+    print(f"Max Distance:\n{max_distance}")
+    print("-" * 50)
+    print(f"Min Distance:\n{min_distance}")
+    print("-" * 50)
+    print(f"Average Distance:\n{average_distance}")
+    print("-" * 50)
+    print(f"RMSE:\n{rmse}")
+    print("-" * 50)
+    print(f"is_inside:\n{tracker_counts}")
+    print("-" * 50)
+    print(f"Average IoU:\n{average_iou}")
+    print("-" * 50)
+    print(f"Reinitialization Count:\n{df_reinit['Tracker'].value_counts(ascending=False)}")
+    print("-" * 50)
+    print(f"Failed Counts:\n{failed_counts.sort_values(ascending=False)}")
 
 
 """
