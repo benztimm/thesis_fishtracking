@@ -12,13 +12,13 @@ from tkinter import messagebox
 from collections import defaultdict
 
 current_dir = os.getcwd()
-video_name = 'video7482_F3.mp4'
-label_folder = 'labels_7482_F3'
+video_name = 'video1.mp4'
+label_folder = 'labels'
 reinitialization_data_folder = 'reinitialization_data'
 reinitialization_data_folder_path = os.path.join(current_dir, reinitialization_data_folder)
 #output_filename = 'output9862.mp4'
 
-reinitialization_data_filename = 'reinitialization_data_1_7482_F3.csv'
+reinitialization_data_filename = 'reinitialization_data_1_1frame.csv'
 
 def compute_frame_rmse(estimated_data, ground_truth_data):
     """
@@ -629,6 +629,32 @@ for i in range(len(label_container_abs)):
             'Tracker': tracker_type_name[c['Tracker']],
             'Is_inside': is_inside
         })
+    """
+    # Auto reinitialize all trackers if any is outside the GT bounding box
+    any_outside = any(not entry['Is_inside'] for entry in is_inside_collection[-TRACKER_NUM:])
+    
+    if any_outside:
+        print(f"Auto-reinitializing all trackers at frame {i} due to outside GT bounding box.")
+        x_gt, y_gt, w_gt, h_gt = label_container_abs[i]
+        roi = (x_gt, y_gt, w_gt, h_gt)
+        for idx in range(TRACKER_NUM):
+            tracker[idx] = create_tracker(idx)
+            tracker[idx].init(frame, roi)
+            kalman[idx].statePre = np.array([[x_gt + w_gt / 2],
+                                             [y_gt + h_gt / 2],
+                                             [0],
+                                             [0]], np.float32)
+            kalman[idx].statePost = kalman[idx].statePre
+            reinitialization_data_new.append({
+                'Frame': i,
+                'Tracker': tracker_type_name[idx],
+                'x': int(roi[0]),
+                'y': int(roi[1]),
+                'w': int(roi[2]),
+                'h': int(roi[3])
+            })
+    """
+    
     #=======================================================================================================
     # RMSE over time
     # Compute RMSE for each tracker
