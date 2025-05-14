@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 OPTION = 'kalman'
 VERSION = 'thesis'
-TITLE = '9866_acanthopagrus_palmaris'
+TITLE = '7482_F3'
 # Read the CSV file; replace 'rmse_data.csv' with your actual filename.
 df = pd.read_csv(f'rmse_over_time_{OPTION}_{VERSION}.csv')
 

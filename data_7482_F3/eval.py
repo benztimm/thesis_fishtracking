@@ -12,15 +12,17 @@ total_frames = len(items)-1
 file_groups = [
     {
         "reinit": "../reinitialization_data/reinitialization_data_1_7482_F3.csv",
-        "is_inside": "is_inside_kalman_1.csv",
-        "distance": "distance_data_kalman_1.csv",
-        "rmse": "rmse_kalman_1.csv",
+        "is_inside": "is_inside_tracker_thesis.csv",
+        "distance": "distance_data_tracker_thesis.csv",
+        "rmse": "rmse_tracker_thesis.csv",
+        "iou": "iou_tracker_thesis.csv"
     },
     {
         "reinit": "../reinitialization_data/reinitialization_data_1_7482_F3.csv",
-        "is_inside": "is_inside_tracker_1.csv",
-        "distance": "distance_data_tracker_1.csv",
-        "rmse": "rmse_tracker_1.csv",
+        "is_inside": "is_inside_kalman_thesis.csv",
+        "distance": "distance_data_kalman_thesis.csv",
+        "rmse": "rmse_kalman_thesis.csv",
+        "iou": "iou_tracker_thesis.csv"
     }
     
     
@@ -37,6 +39,7 @@ for i, files in enumerate(file_groups, start=1):
     print(files["is_inside"])
     df_data = pd.read_csv(files["distance"])
     df_rmse = pd.read_csv(files["rmse"])
+    df_iou = pd.read_csv(files["iou"])
 
     # Extract name from the filename
     if 'kalman' in files["is_inside"]:
@@ -45,12 +48,16 @@ for i, files in enumerate(file_groups, start=1):
         name = files["is_inside"][files["is_inside"].index('tracker'):].split('.')[0]
     else:
         name = files["is_inside"].split('.')[0]
+    fname = files["reinit"].split('/')[-1]
+    name = f'{name}_{fname}'
     # Perform calculations
-    tracker_counts = df_is_inside.groupby('Tracker')['Is_inside'].value_counts().sort_values(ascending=False)
+    tracker_counts = (df_is_inside.groupby('Tracker')['Is_inside'].value_counts().loc[:, True].sort_values(ascending=False))
+    tracker_counts = tracker_counts / total_frames
     reinit_count = df_reinit['Tracker'].value_counts()
     max_distance = df_data.groupby('Tracker')['Distance'].max().sort_values()
     min_distance = df_data.groupby('Tracker')['Distance'].min().sort_values()
     average_distance = df_data.groupby('Tracker')['Distance'].mean().sort_values()
+    average_iou = df_iou.groupby('Tracker')['IoU'].mean().sort_values(ascending=False)
 
     # Calculate failed counts
     total_tracker_counts = df_is_inside.groupby('Tracker')['Is_inside'].count()
@@ -65,7 +72,8 @@ for i, files in enumerate(file_groups, start=1):
         "reinit_count": reinit_count,
         "failed_counts": failed_counts.sort_values(ascending=False),
         'rmse': df_rmse.sort_values(by='RMSE'),
-        'name': name
+        'name': name,
+        'average_iou': average_iou
     })
 
 # Display results
@@ -85,6 +93,6 @@ for i, result in enumerate(results, start=1):
     print("-" * 50)
     print(f"Reinitialization Count:\n{result['reinit_count']}")
     print("=" * 50)
-    print("")
+    print(f'Average IoU:\n{result["average_iou"]}')
     print("")
     

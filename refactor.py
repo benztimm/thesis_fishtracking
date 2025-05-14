@@ -13,17 +13,23 @@ import copy
 # Configuration & Global Constants
 # =============================================================================
 
+
+
+
+
+"""  
 TRACKER_NUM = 6
-OUTPUT_WRITE_VIDEO = False
-OUTPUT_FILENAME = 'output9862_update-kalman.mp4'
-COLLECT_DATA = False
-SWITCH = 'tracker'  # 'kalman' or 'tracker'
-VERSION = '_5'
+COLLECT_DATA = True
+SWITCH = 'kalman'  # 'kalman' or 'tracker'
+VERSION = '_thesis'
 DATA_FOLDER = 'data_9862'
 VIDEO_NAME = 'video9862.mp4'
 LABEL_FOLDER = 'labels_9862'
 REINIT_FILENAME = 'reinitialization_data_1_9862.csv'
 
+OUTPUT_WRITE_VIDEO = True
+OUTPUT_FILENAME = f'output9862_{SWITCH}-{VERSION}.mp4'
+
 CURRENT_DIR = os.getcwd()
 REINIT_DATA_FOLDER = os.path.join(CURRENT_DIR, 'reinitialization_data')
 REINIT_DATA_FILENAME = os.path.join(REINIT_DATA_FOLDER, REINIT_FILENAME)
@@ -34,18 +40,19 @@ else:
     KAL_OR_TRACKER = f'tracker{VERSION}'
     
     
-"""  
+
 TRACKER_NUM = 6
-OUTPUT_WRITE_VIDEO = False
-OUTPUT_FILENAME = 'output7482_F3_draw_box.mp4'
 COLLECT_DATA = False
 SWITCH = 'kalman'  # 'kalman' or 'tracker'
-VERSION = '_1'
+VERSION = '_thesis'
 DATA_FOLDER = 'data_7482_F3'
 VIDEO_NAME = 'video7482_F3.mp4'
 LABEL_FOLDER = 'labels_7482_F3'
 REINIT_FILENAME = 'reinitialization_data_1_7482_F3.csv'
 
+OUTPUT_WRITE_VIDEO = False
+OUTPUT_FILENAME = f'output7482_F3_{SWITCH}-{VERSION}.mp4'
+
 CURRENT_DIR = os.getcwd()
 REINIT_DATA_FOLDER = os.path.join(CURRENT_DIR, 'reinitialization_data')
 REINIT_DATA_FILENAME = os.path.join(REINIT_DATA_FOLDER, REINIT_FILENAME)
@@ -54,11 +61,35 @@ if SWITCH == 'kalman':
     KAL_OR_TRACKER = f'kalman{VERSION}'
 else:
     KAL_OR_TRACKER = f'tracker{VERSION}'
+
+
 """
+TRACKER_NUM = 6
+COLLECT_DATA = False
+SWITCH = 'kalman'  # 'kalman' or 'tracker'
+VERSION = '_thesis'
+DATA_FOLDER = 'data'
+VIDEO_NAME = 'video1.mp4'
+LABEL_FOLDER = 'labels'
+REINIT_FILENAME = 'reinitialization_data_1_1frame.csv'
+
+OUTPUT_WRITE_VIDEO = False
+OUTPUT_FILENAME = f'output_{SWITCH}-{VERSION}.mp4'
+
+CURRENT_DIR = os.getcwd()
+REINIT_DATA_FOLDER = os.path.join(CURRENT_DIR, 'reinitialization_data')
+REINIT_DATA_FILENAME = os.path.join(REINIT_DATA_FOLDER, REINIT_FILENAME)
+
+if SWITCH == 'kalman':
+    KAL_OR_TRACKER = f'kalman{VERSION}'
+else:
+    KAL_OR_TRACKER = f'tracker{VERSION}'
 
 # =============================================================================
 # Utility Functions
 # =============================================================================
+tracker_type_name = ['CSRT', 'KCF', 'MIL', 'BOOSTING', 'MEDIANFLOW', 'MOSSE', 'TLD'][:TRACKER_NUM]
+
 def compute_frame_rmse(estimated_data, ground_truth_data):
     """Compute RMSE between estimated and ground truth centroids based on common frames."""
     est_dict = {entry['Frame']: np.array(entry['Centroid']) for entry in estimated_data}
@@ -72,7 +103,7 @@ def compute_frame_rmse(estimated_data, ground_truth_data):
     squared_distances = np.sum(differences**2, axis=1)
     mse = np.mean(squared_distances)
     return np.sqrt(mse)
-
+filtered_count ={}
 def filter_outliers(position_estimates, position_covariances):
     """
     Filters out outliers using Mahalanobis distance.
@@ -83,6 +114,7 @@ def filter_outliers(position_estimates, position_covariances):
 
     estimates_array = np.array([est.flatten() for est in position_estimates])
     median_position = np.median(estimates_array, axis=0)
+    print(f"median_position: {median_position}")
     cov_matrix = np.cov(estimates_array, rowvar=False)
     regularized_cov_matrix = regularize_covariance_matrix(cov_matrix)
     inv_cov_matrix = np.linalg.inv(regularized_cov_matrix)
@@ -94,11 +126,22 @@ def filter_outliers(position_estimates, position_covariances):
     distances_array = np.array(mahalanobis_distances)
     mean_distance = np.mean(distances_array)
     std_dev_distance = np.std(distances_array)
-    lower_bound = mean_distance - 2 * std_dev_distance
-    upper_bound = mean_distance + 2 * std_dev_distance
-
+    lower_bound = mean_distance - 1.5 * std_dev_distance
+    upper_bound = mean_distance + 1.5 * std_dev_distance
+    print(f"Mahalanobis distances: {mahalanobis_distances}")
+    print(f"lower_bound: {lower_bound}, upper_bound: {upper_bound}")
     valid_indices = [idx for idx, dist in enumerate(mahalanobis_distances)
                      if lower_bound <= dist <= upper_bound]
+    
+    if len(valid_indices) < len(position_estimates):
+        removed_indices = sorted(set(range(len(position_estimates))) - set(valid_indices))
+        for i in removed_indices:
+            filtered_count[i] = filtered_count.get(i, 0) + 1
+        if tracker_type_name:
+            removed_names = [tracker_type_name[i] for i in removed_indices]
+            print(f"Filtered out trackers: {removed_names} (indices: {removed_indices})")
+        else:
+            print(f"Filtered out indices due to outliers: {removed_indices}")
     filtered_estimates = [position_estimates[idx] for idx in valid_indices]
     filtered_covariances = [position_covariances[idx] for idx in valid_indices]
     return filtered_estimates, filtered_covariances
@@ -342,6 +385,8 @@ def main():
     iou_collection = []
     is_inside_collection = []
     reinit_data_new = []
+    auto_reinit = {}
+    
     
     # Video writer if needed
     if OUTPUT_WRITE_VIDEO:
@@ -444,6 +489,7 @@ def main():
                 pos_cov = kalman_filters[j].errorCovPost[:2, :2]
                 position_estimates_collection[frame_index].append(pos_est)
                 position_covariances_collection[frame_index].append(pos_cov)
+                
             else:
                 failed_trackers[frame_index].append(j)
         
@@ -465,6 +511,7 @@ def main():
                 position_estimates_collection[frame_index],
                 position_covariances_collection[frame_index]
             )
+            #filt_est, filt_cov = position_estimates_collection[frame_index],position_covariances_collection[frame_index]
             if filt_est:
                 fused_pos, fused_cov = multi_covariance_intersection(filt_est, filt_cov)
                 x_fuse, y_fuse = int(fused_pos[0]), int(fused_pos[1])
@@ -536,6 +583,8 @@ def main():
         # Reinitialize any failed trackers
         for j in failed_trackers[frame_index]:
             print(f"Tracker {tracker_type_name[j]} failed, reinitializing...")
+            auto_reinit[tracker_type_name[j]] = auto_reinit.get(tracker_type_name[j], 0) + 1
+
             trackers[j] = create_tracker(j)
             trackers[j].init(frame_copy, (x_min, y_min, mean_box[0], mean_box[1]))
             kalman_filters[j].statePre = np.array([[x_min + mean_box[0] / 2],
@@ -587,15 +636,16 @@ def main():
             writer.writeheader()
             writer.writerows(rmse_over_time)
         
-        if SWITCH == 'tracker':
-            with open(os.path.join(DATA_FOLDER, f'iou_{KAL_OR_TRACKER}.csv'),
-                      mode='w', newline='') as file:
-                writer = csv.DictWriter(file, fieldnames=['Frame', 'Tracker', 'IoU'])
-                writer.writeheader()
-                writer.writerows(iou_collection)
+        
+        with open(os.path.join(DATA_FOLDER, f'iou_{KAL_OR_TRACKER}.csv'),
+                  mode='w', newline='') as file:
+            writer = csv.DictWriter(file, fieldnames=['Frame', 'Tracker', 'IoU'])
+            writer.writeheader()
+            writer.writerows(iou_collection)
         print("Data saved to CSV files.")
     else:
         print("Data not saved to CSV files.")
+        print(auto_reinit)
         # Optionally, display the results using pandas DataFrames
         df_distance = pd.DataFrame(data_distance_collection)
         df_inside = pd.DataFrame(is_inside_collection)
@@ -632,6 +682,9 @@ def main():
         print(f"Reinitialization Count:\n{df_reinit['Tracker'].value_counts(ascending=False)}")
         print("-" * 50)
         print(f"Failed Counts:\n{failed_counts.sort_values(ascending=False)}")
+        print("-" * 50)
+        for tracker, count in filtered_count.items():
+            print(f"Filtered out {tracker_type_name[tracker]} {count} times")
 
 if __name__ == '__main__':
     main()

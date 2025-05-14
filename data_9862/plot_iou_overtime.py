@@ -2,9 +2,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Define options
-OPTION = 'tracker'
+OPTION = 'kalman'
 VERSION = 'thesis'
-TITLE = '7482_F3'
+TITLE = '9862_Acanthopagrus_palmaris'
 # Read the IoU CSV file
 df = pd.read_csv(f'iou_tracker_{VERSION}.csv')  # Replace with your actual filename
 
