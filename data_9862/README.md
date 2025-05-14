@@ -8,7 +8,7 @@ This directory contains evaluation logs and visualization tools for comparing tr
 
 | File                           | Description                                                             |
 |--------------------------------|-------------------------------------------------------------------------|
-| `evaluate.py`                 | Prints summary statistics for all trackers and fused output             |
+| `eval.py`                 | Prints summary statistics for all trackers and fused output             |
 | `plot_distance_overtime.py`   | Line plot of Euclidean distance over time for each tracker              |
 | `plot_rmse_overtime.py`       | Line plot of RMSE per frame per tracker                                 |
 | `plot_iou_overtime.py`        | Line plot of IoU per frame for fused tracker (or optionally all)        |
@@ -19,7 +19,7 @@ This directory contains evaluation logs and visualization tools for comparing tr
 ## 📌 Evaluate Summary Statistics
 
 ```
-python evaluate.py
+python eval.py
 ```
 
 This script will:
